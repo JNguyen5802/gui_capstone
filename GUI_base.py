@@ -1,5 +1,7 @@
 import gi
 import webbrowser
+import os
+os.environ["GDK_RENDERING"] = "cairo"  # or "gl"
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk, Gio, Gdk  # Import Gdk for applying the CSS
 
@@ -9,6 +11,22 @@ class MyWindow(Gtk.Window):
         self.set_default_size(1000, 600)
         self.set_application(app)  # Link the window to the application
 
+        def create_legend_item(icon_path, text):
+            # Create a horizontal box for the icon and label
+            item_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
+            # Create the icon image
+            icon = Gtk.Image.new_from_file(icon_path)  # Replace with path to your icon image
+            icon.set_size_request(30, 30)  # Set the icon size
+            
+            # Create the label
+            label = Gtk.Label(label=text, halign=Gtk.Align.START)
+            
+            # Add the icon and label to the horizontal box
+            item_box.append(icon)
+            item_box.append(label)
+            
+            return item_box
+        
         # Create the main container (a horizontal box) for the window content
         main_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         main_box.set_hexpand(True)  # Allow horizontal expansion
@@ -22,49 +40,50 @@ class MyWindow(Gtk.Window):
         left_panel.set_vexpand(True)  # Allow the side panel to expand vertically
         
         # Create a frame (rectangle) for the title and make it expand horizontally
-        title_frame = Gtk.Frame()
-        # title_frame.set_hexpand(True)  # Make the frame expand horizontally
-        title_frame.add_css_class("title-frame")  # Add CSS class for further styling
-        # Create a label for the title and add it inside the frame
-        left_panel_title = Gtk.Label(label="Status Panel", halign=Gtk.Align.CENTER)
-        title_frame.set_child(left_panel_title)  # Add the label inside the frame
-        # Add the title frame to the top of the left panel
-        left_panel.append(title_frame)
+        legend_frame = Gtk.Frame()
+        legend_frame.add_css_class("title-frame")  # Add CSS class for further styling
+        legend_label = Gtk.Label(label="Legend", halign=Gtk.Align.CENTER)
+        legend_frame.set_child(legend_label)  # Add the label inside the frame
+        left_panel.append(legend_frame)
+        legend_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
+        legend_box.set_margin_top(10)
 
+        #Add Items to the Legend
+        legend_box.append(create_legend_item("/home/dfec/Pictures/Screenshots/drone_reboot.png","Booting Drone"))
+        legend_box.append(create_legend_item("/home/dfec/Pictures/Screenshots/DiscoveryDrone.jpg","Discovery Drone"))
+        legend_box.append(create_legend_item("/home/dfec/Pictures/Screenshots/RogueDrone.jpg","Rogue Drone"))
+        legend_box.append(create_legend_item("/home/dfec/Pictures/Screenshots/FortemRadar.png","Radar"))
+        legend_box.append(create_legend_item("/home/dfec/Pictures/Screenshots/GCS.png","Ground Station"))
+        left_panel.append(legend_box)
 
+        # #Progress Bar for DD
+        # progress_bar_label = Gtk.Label(label="Discovery Drone Battery (%)", halign=Gtk.Align.CENTER)
+        # left_panel.append(progress_bar_label)
+        # self.progress_bar = Gtk.ProgressBar()
+        # self.progress_bar.set_margin_top(10)
+        # self.progress_bar.set_margin_bottom(10)
+        # left_panel.append(self.progress_bar)
 
-        progress_bar_label = Gtk.Label(label="Discovery Drone Battery (%)", halign=Gtk.Align.CENTER)
-        left_panel.append(progress_bar_label)
-
-        self.progress_bar = Gtk.ProgressBar()
-        self.progress_bar.set_margin_top(10)
-        self.progress_bar.set_margin_bottom(10)
-        left_panel.append(self.progress_bar)
-
-        progress_bar_label = Gtk.Label(label="Rogue Drone Battery (%)", halign=Gtk.Align.CENTER)
-        left_panel.append(progress_bar_label)
-
-        self.progress_bar2 = Gtk.ProgressBar()
-        self.progress_bar2.set_margin_top(10)
-        self.progress_bar2.set_margin_bottom(10)
-        left_panel.append(self.progress_bar2)
+        # #Progress Bar for RD
+        # progress_bar_label = Gtk.Label(label="Rogue Drone Battery (%)", halign=Gtk.Align.CENTER)
+        # left_panel.append(progress_bar_label)
+        # self.progress_bar2 = Gtk.ProgressBar()
+        # self.progress_bar2.set_margin_top(10)
+        # self.progress_bar2.set_margin_bottom(10)    
+        # left_panel.append(self.progress_bar2)
         
-
         # Create a frame (rectangle) for the title and make it expand horizontally
-        title_frame = Gtk.Frame()
-        # title_frame.set_hexpand(True)  # Make the frame expand horizontally
-        title_frame.add_css_class("title-frame")  # Add CSS class for further styling
-        # Create a label for the title and add it inside the frame
-        left_panel_title = Gtk.Label(label="Legend", halign=Gtk.Align.CENTER)
-        title_frame.set_child(left_panel_title)  # Add the label inside the frame
-        # Add the title frame to the top of the left panel
-        left_panel.append(title_frame)
-
-
-
+        status_frame = Gtk.Frame()
+        status_frame.add_css_class("title-frame")  # Add CSS class for further styling
+        status_label = Gtk.Label(label="Status Panel", halign=Gtk.Align.CENTER)
+        status_frame.set_child(status_label)  # Add the label inside the frame
+        left_panel.append(status_frame)
+        status_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
+        status_box.set_margin_top(10)
 
         # Add the side panel to the main container
         main_box.append(left_panel)
+
         # ----------------------- Main Content Area (Center) ----------------
         content_area = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         content_area.add_css_class("content-area")  # Add a CSS class for styling
@@ -77,18 +96,18 @@ class MyWindow(Gtk.Window):
         content_area.append(open_maps_button)
 
         # Load the image
-        image = Gtk.Image.new_from_file("C:\\Users\\C25Jimmy.Nguyen\\OneDrive - afacademy.af.edu\\Desktop\\GUI CAPSTONE\\Screenshot 2024-10-04 224853.png")
-       
-        # Make sure the image expands and fills the available space
+        #image = Gtk.Image.new_from_file("C:\\Users\\C25Jimmy.Nguyen\\OneDrive - afacademy.af.edu\\Desktop\\GUI CAPSTONE\\Screenshot 2024-10-04 224853.png")
+        image = Gtk.Picture.new_for_filename("/home/dfec/Pictures/Screenshots/Gui.png")
+        # Ensure the image expands and fills the available space
         image.set_hexpand(True)
         image.set_vexpand(True)
+        image.set_content_fit(Gtk.ContentFit.FILL)  # Make the image fill the container
 
         # Add the image to the content area
         content_area.append(image)
-
-        # Add content to the main content area
-        content_label = Gtk.Label(label="Main Content Area", halign=Gtk.Align.CENTER)
-        content_area.append(content_label)
+        # # Add content to the main content area
+        # content_label = Gtk.Label(label="Main Content Area", halign=Gtk.Align.CENTER)
+        # content_area.append(content_label)
         # Add the content area to the main container
         main_box.append(content_area)
 
@@ -108,7 +127,6 @@ class MyWindow(Gtk.Window):
         # Create a label for the title and add it inside the frame
         right_panel_title = Gtk.Label(label="Controls", halign=Gtk.Align.CENTER)
         title_frame.set_child(right_panel_title)  # Add the label inside the frame
-        # Add the title frame to the top of the left panel
         right_panel.append(title_frame)
 
         # Create a button and add it to the right panel
@@ -116,38 +134,29 @@ class MyWindow(Gtk.Window):
         button_in_right_panel.set_margin_top(10)
         right_panel.append(button_in_right_panel)
 
-        # Create a button and add it to the right panel
         button2_in_right_panel = Gtk.Button(label="Log Data")
         button2_in_right_panel.set_margin_top(10)
         right_panel.append(button2_in_right_panel)
 
-        # Create a button and add it to the right panel
         button3_in_right_panel = Gtk.Button(label="Input Lat/Long")
         button3_in_right_panel.set_margin_top(10)
         right_panel.append(button3_in_right_panel)
 
-        # Create a button and add it to the right panel
         button4_in_right_panel = Gtk.Button(label="Reload Map")
         button4_in_right_panel.set_margin_top(10)
         right_panel.append(button4_in_right_panel)
-
-        # Create a button and add it to the right panel
         button5_in_right_panel = Gtk.Button(label="Freeze")
         button5_in_right_panel.set_margin_top(10)
         right_panel.append(button5_in_right_panel)
 
-        # Create a button and add it to the right panel
         button6_in_right_panel = Gtk.Button(label="Camera Stream")
         button6_in_right_panel.set_margin_top(10)
-        right_panel.append(button6_in_right_panel)
 
-        # Create a button and add it to the right panel
         button7_in_right_panel = Gtk.Button(label="Follow-me Mode")
         button7_in_right_panel.set_margin_top(10)
         right_panel.append(button7_in_right_panel)
 
         main_box.append(right_panel)
-
         # Apply the custom CSS styles
         self.apply_css()
 
