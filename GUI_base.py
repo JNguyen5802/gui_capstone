@@ -1,9 +1,12 @@
 import gi
 import webbrowser
 import os
+os.environ["LIBGL_ALWAYS_SOFTWARE"] = "1"
 os.environ["GDK_RENDERING"] = "cairo"  # or "gl"
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk, Gio, Gdk  # Import Gdk for applying the CSS
+from PIL import Image, ImageDraw
+
 
 class MyWindow(Gtk.Window):
     def __init__(self, app):
@@ -95,6 +98,73 @@ class MyWindow(Gtk.Window):
         open_maps_button.connect("clicked", self.open_maps)
         content_area.append(open_maps_button)
 
+        #---------------------GUI LatLong Grids-----------------
+        #Load static image map
+        image_path = "/home/dfec/Pictures/Screenshots/Test2.png"
+        map_image = Image.open(image_path)
+        draw = ImageDraw.Draw(map_image)
+
+        image_width, image_height = map_image.size
+
+        # Lat/Long for the four corners of the image
+        # lat1, lon1 = 39.01897, -104.89435  # Top-Left
+        # lat2, lon2 = 39.01897, -104.89431  # Top-Right
+        # lat3, lon3 = 39.01739, -104.89435  # Bottom-Left
+        # lat4, lon4 = 39.01739, -104.89431  # Bottom-Right
+        
+        #New test coordinates
+        lat1, lon1 = 39.019045, -104.894301  # Top-Left
+        lat2, lon2 = 39.019045, -104.892113  # Top-Right
+        lat3, lon3 = 39.017430, -104.894301  # Bottom-Left
+        lat4, lon4 = 39.017430, -104.892113  # Bottom-Right
+ 
+        ## Correctly calculated lat_per_pixel and lon_per_pixel
+        lat_range = lat1 - lat3  # Should be positive
+        lon_range = lon2 - lon1  # Should be positive
+        lat_per_pixel = lat_range / image_height
+        lon_per_pixel = lon_range / image_width
+
+        # Check for zero range and raise an error if detected
+        if lat_range == 0 or lon_range == 0:
+            raise ValueError("Latitude or Longitude range is zero. Please adjust coordinates.")
+
+
+        # Function to convert lat/long to pixel coordinates
+        def latlon_to_pixel(latitude, longitude):
+             # Check if the coordinate is within bounds
+            if not (lat3 <= latitude <= lat1) or not (lon1 <= longitude <= lon2):
+                print(f"Warning: Latitude {latitude} or Longitude {longitude} is out of the image bounds.")
+                return None
+            # Calculate pixel position
+            pixel_x = (longitude - lon1) / lon_per_pixel
+            pixel_y = (lat1 - latitude) / lat_per_pixel
+            print(f"Lat/Lon: ({latitude}, {longitude}) -> Pixel: ({int(pixel_x)}, {int(pixel_y)})")
+            return int(pixel_x), int(pixel_y)
+
+        # Check that coordinates fall within adjusted bounds
+        #latitude, longitude = 39.01818, -104.89433  # CENTER COORD 
+        #latitude, longitude = 39.01897, -104.89433 # TOP CENTER COORD
+        #latitude, longitude = 39.01739, -104.89433 # BOTTOM CENTER COORD
+        #latitude, longitude = 39.01818, -104.89435 # LEFT CENTER COORD
+        #latitude, longitude = 39.01818, -104.89431 # RIGHT CENTER COORD
+
+        #Radar Coord Data
+        latitude, longitude = 39.01839, -104.89353
+
+
+        if lat3 <= latitude <= lat1 and lon1 <= longitude <= lon2:
+            x, y = latlon_to_pixel(latitude, longitude)
+            draw.ellipse((x - 5, y - 5, x + 5, y + 5), fill="red", outline="black")
+        else:
+            print("Adjusted coordinates are still out of bounds.")
+
+        # Save or display the result
+        map_image.save("/home/dfec/Pictures/Screenshots/NewMapWGrid.png")
+        map_image.show()
+
+        #-------------------------------------------------------
+
+
         # Load the image
         #image = Gtk.Image.new_from_file("C:\\Users\\C25Jimmy.Nguyen\\OneDrive - afacademy.af.edu\\Desktop\\GUI CAPSTONE\\Screenshot 2024-10-04 224853.png")
         image = Gtk.Picture.new_for_filename("/home/dfec/Pictures/Screenshots/Gui.png")
@@ -102,15 +172,10 @@ class MyWindow(Gtk.Window):
         image.set_hexpand(True)
         image.set_vexpand(True)
         image.set_content_fit(Gtk.ContentFit.FILL)  # Make the image fill the container
-
         # Add the image to the content area
         content_area.append(image)
-        # # Add content to the main content area
-        # content_label = Gtk.Label(label="Main Content Area", halign=Gtk.Align.CENTER)
-        # content_area.append(content_label)
         # Add the content area to the main container
         main_box.append(content_area)
-
 
 
 
