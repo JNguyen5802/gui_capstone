@@ -30,78 +30,58 @@ def clean_coordinate(value):
 def read_coordinates(file_path):
     """
     Reads latitude and longitude coordinates from a CSV or Excel (.xlsx) file.
-    Fixes malformed coordinate formatting and skips the Time column.
+    Supports formats with BREAK lines and standard telemetry headers.
     """
     coordinates = []
 
     try:
-        if file_path.lower().endswith(".xlsx"):  # Excel file
-            print(f"Reading Excel file: {file_path}")
+        if file_path.lower().endswith(".xlsx"):
             wb = openpyxl.load_workbook(file_path, data_only=True)
             sheet = wb.active
 
             for row in sheet.iter_rows(values_only=True):
-                try:
-                    # Ensure we have at least 3 columns (Time, Latitude, Longitude)
-                    if len(row) < 3 or row[1] is None or row[2] is None:
-                        continue  # Skip rows without enough data
+                if len(row) < 3 or row[1] is None or row[2] is None:
+                    continue
+                latitude = clean_coordinate(row[1])
+                longitude = clean_coordinate(row[2])
+                if latitude is not None and longitude is not None:
+                    if -90 <= latitude <= 90 and -180 <= longitude <= 180:
+                        coordinates.append((latitude, longitude))
 
-                    lat_value, lon_value = row[1], row[2]
-
-                    # Preserve original values for debugging
-                    raw_lat, raw_lon = lat_value, lon_value
-
-                    # Clean and convert values
-                    latitude = clean_coordinate(lat_value)
-                    longitude = clean_coordinate(lon_value)
-
-                    # Validate latitude and longitude bounds
-                    if latitude is not None and longitude is not None:
-                        if -90 <= latitude <= 90 and -180 <= longitude <= 180:
-                            coordinates.append((latitude, longitude))
-                        else:
-                            print(f"ERROR: Latitude {latitude} or Longitude {longitude} incorrectly flagged as out of bounds!")
-
-                except Exception as e:
-                    print(f"Skipping malformed row: {row} - Error: {e}")
-
-        elif file_path.lower().endswith(".csv"):  # CSV file
-            # print(f"Reading CSV file: {file_path}")
+        elif file_path.lower().endswith(".csv"):
             with open(file_path, mode='r', newline='', encoding='utf-8') as file:
-                reader = csv.DictReader(file)
+                reader = csv.reader(file)
+                headers = []
                 for row in reader:
-                    try:
-                        # Skip rows with missing data
-                        if "Latitude" not in row or "Longitude" not in row:
-                            continue
+                    if not row or row[0].startswith("BREAK"):
+                        continue
 
-                        lat_value, lon_value = row["Latitude"], row["Longitude"]
+                    # Update headers if it's a header row
+                    if row[0].strip() == "Time" and "Latitude" in row and "Longitude" in row:
+                        headers = row
+                        continue
 
-                        # Preserve original values for debugging
-                        raw_lat, raw_lon = lat_value, lon_value
+                    if len(headers) >= 3:
+                        try:
+                            lat_idx = headers.index("Latitude")
+                            lon_idx = headers.index("Longitude")
 
-                        # Clean and convert values
-                        latitude = clean_coordinate(lat_value)
-                        longitude = clean_coordinate(lon_value)
+                            lat_value = row[lat_idx]
+                            lon_value = row[lon_idx]
 
-                        # Validate latitude and longitude bounds
-                        if latitude is not None and longitude is not None:
-                            if -90 <= latitude <= 90 and -180 <= longitude <= 180:
-                                coordinates.append((latitude, longitude))
-                            else:
-                                print(f"ERROR: Latitude {latitude} or Longitude {longitude} incorrectly flagged as out of bounds!")
+                            latitude = clean_coordinate(lat_value)
+                            longitude = clean_coordinate(lon_value)
 
-                    except Exception as e:
-                        print(f"Skipping malformed row: {row} - Error: {e}")
-
-        else:
-            print(f"Unsupported file format: {file_path}")
-            return []
-
+                            if latitude is not None and longitude is not None:
+                                if -90 <= latitude <= 90 and -180 <= longitude <= 180:
+                                    coordinates.append((latitude, longitude))
+                        except Exception as e:
+                            print(f"Skipping row: {row} due to error: {e}")
     except Exception as e:
         print(f"Error reading file {file_path}: {e}")
 
     return coordinates
+
 
 
 
@@ -120,7 +100,7 @@ class MyWindow(Gtk.Window):
                 self.map_image_widget.set_file(file)
             else:
                 # Ensure we default to the base image
-                base_image_path = r"C:\Users\C25Jimmy.Nguyen\OneDrive - afacademy.af.edu\Desktop\GUI CAPSTONE\Test2Map.png"
+                base_image_path = "/home/dfec/Desktop/GUI CAPSTONE/Test2Map.png"
                 file = Gio.File.new_for_path(base_image_path)
                 self.map_image_widget.set_file(file)
 
@@ -188,11 +168,11 @@ class MyWindow(Gtk.Window):
         legend_box.set_margin_top(10)
 
         # Add Items to the Legend
-        legend_box.append(create_legend_item(r"C:\Users\C25Jimmy.Nguyen\OneDrive - afacademy.af.edu\Desktop\GUI CAPSTONE\drone_reboot.png", "Booting Drone"))
-        legend_box.append(create_legend_item(r"C:\Users\C25Jimmy.Nguyen\OneDrive - afacademy.af.edu\Desktop\GUI CAPSTONE\DiscoveryDrone_Transparent.png","Discovery Drone"))
-        legend_box.append(create_legend_item(r"C:\Users\C25Jimmy.Nguyen\OneDrive - afacademy.af.edu\Desktop\GUI CAPSTONE\RogueDrone_Transparent.png","Rogue Drone"))
-        legend_box.append(create_legend_item(r"C:\Users\C25Jimmy.Nguyen\OneDrive - afacademy.af.edu\Desktop\GUI CAPSTONE\FortemRadar.png","Radar"))
-        legend_box.append(create_legend_item(r"C:\Users\C25Jimmy.Nguyen\OneDrive - afacademy.af.edu\Desktop\GUI CAPSTONE\GCS.png","Ground Station"))
+        legend_box.append(create_legend_item("/home/dfec/Desktop/GUI CAPSTONE/drone_reboot.png", "Booting Drone"))
+        legend_box.append(create_legend_item("/home/dfec/Desktop/GUI CAPSTONE/DiscoveryDrone_Transparent.png", "Discovery Drone"))
+        legend_box.append(create_legend_item("/home/dfec/Desktop/GUI CAPSTONE/RogueDrone_Transparent.png","Rogue Drone"))
+        legend_box.append(create_legend_item("/home/dfec/Desktop/GUI CAPSTONE/FortemRadar.png","Radar"))
+        legend_box.append(create_legend_item("/home/dfec/Desktop/GUI CAPSTONE/GCS.png","Ground Station"))
         left_panel.append(legend_box)
 
         # Create a frame (rectangle) for the title and make it expand horizontally
@@ -220,7 +200,7 @@ class MyWindow(Gtk.Window):
         self.content_area.append(self.map_image_widget)
 
         # Load initial static image map
-        self.refresh_image(r"C:\Users\C25Jimmy.Nguyen\OneDrive - afacademy.af.edu\Desktop\GUI CAPSTONE\Test2Map.png")
+        self.refresh_image("/home/dfec/Desktop/GUI CAPSTONE/GUI CAPSTONE/Test2Map.png")
 
         # ----------------------- Right Side Panel ----------------------------
         right_panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -292,32 +272,6 @@ class MyWindow(Gtk.Window):
         reload_data_button.set_size_request(200,60)
         reload_data_button.connect("clicked", self.on_reload_data_clicked)  # Connect to method
         right_panel.append(reload_data_button)
-
-        # button2_in_right_panel = Gtk.Button(label="Log Data")
-        # button2_in_right_panel.set_margin_top(10)
-        # right_panel.append(button2_in_right_panel)
-
-        # button3_in_right_panel = Gtk.Button(label="Input Lat/Long")
-        # button3_in_right_panel.set_margin_top(10)
-        # right_panel.append(button3_in_right_panel)
-
-        # button4_in_right_panel = Gtk.Button(label="Reload Map")
-        # button4_in_right_panel.set_margin_top(10)
-        
-        # button4_in_right_panel.connect("clicked", self.on_reload_map_clicked)
-        # right_panel.append(button4_in_right_panel)
-
-        # button5_in_right_panel = Gtk.Button(label="Freeze")
-        # button5_in_right_panel.set_margin_top(10)
-        # right_panel.append(button5_in_right_panel)
-
-        # button6_in_right_panel = Gtk.Button(label="Camera Stream")
-        # button6_in_right_panel.set_margin_top(10)
-        # right_panel.append(button6_in_right_panel)
-
-        # button7_in_right_panel = Gtk.Button(label="Follow-me Mode")
-        # button7_in_right_panel.set_margin_top(10)
-        # right_panel.append(button7_in_right_panel)
 
         main_box.append(right_panel)
 
@@ -401,7 +355,7 @@ class MyWindow(Gtk.Window):
         Resets the map to its original image.
         """
         print("Reload Map button clicked.")
-        self.refresh_image(r"C:\Users\C25Jimmy.Nguyen\OneDrive - afacademy.af.edu\Desktop\GUI CAPSTONE\Test2Map.png")
+        self.refresh_image("/home/dfec/Desktop/GUI CAPSTONE/Test2Map.png")
 
     def on_reload_data_clicked(self, button):
         """
@@ -421,7 +375,7 @@ class MyWindow(Gtk.Window):
         Copies the original RogueCoords.csv file and saves it with a unique timestamp.
         """
         try:
-            base_path = r"C:\Users\C25Jimmy.Nguyen\OneDrive - afacademy.af.edu\Desktop\GUI CAPSTONE"
+            base_path = "/home/dfec/Desktop/GUI CAPSTONE"
             original_file = os.path.join(base_path, "RogueCoords.csv")  # Ensure it's a CSV file
 
             # Create a unique filename using a timestamp
@@ -441,7 +395,7 @@ class MyWindow(Gtk.Window):
         Copies the original DiscoveryCoords.xlsx file and saves it with a unique name.
         """
         try:
-            base_path = r"C:\Users\C25Jimmy.Nguyen\OneDrive - afacademy.af.edu\Desktop\GUI CAPSTONE"
+            base_path = "/home/dfec/Desktop/GUI CAPSTONE"
             original_file = os.path.join(base_path, "DiscoveryCoords.csv")  # Ensure correct file format
             new_file = os.path.join(base_path, f"discovery_coords_copy_{self.discovery_save_counter}.csv")
 
@@ -472,8 +426,7 @@ class MyWindow(Gtk.Window):
 
         # Combine all available replay files (Rogue + Discovery)
         all_replay_files = [
-            "RogueCoords_Copy_20250319_115309.csv", "RogueCoords_Downsampled_Every5.csv", "rogue_coords_3.xlsx",
-            "discovery_coords_1.csv", "discovery_coords_2.xlsx", "discovery_coords_3.xlsx"
+             "RogueCoords_Downsampled_Every5.csv"
         ]
 
         # Populate the dropdown
@@ -522,7 +475,7 @@ class MyWindow(Gtk.Window):
         Clears the map and resets it to the base image.
         """
         try:
-            base_image_path = r"C:\Users\C25Jimmy.Nguyen\OneDrive - afacademy.af.edu\Desktop\GUI CAPSTONE\Test2Map.png"
+            base_image_path = "/home/dfec/Desktop/GUI CAPSTONE/Test2Map.png"
 
             print("Resetting map to original base image.")
 
@@ -590,7 +543,7 @@ class MyWindow(Gtk.Window):
             # Clear the map and start with the base image
             if not hasattr(self, "base_map_pixbuf"):
                 self.base_map_pixbuf = GdkPixbuf.Pixbuf.new_from_file(
-                    r"C:\Users\C25Jimmy.Nguyen\OneDrive - afacademy.af.edu\Desktop\GUI CAPSTONE\Test2Map.png"
+                   "/home/dfec/Desktop/GUI CAPSTONE/Test2Map.png"
                 )
             
             # Convert Pixbuf to a PIL Image
@@ -677,9 +630,7 @@ class MyWindow(Gtk.Window):
             print(f"Loaded {len(coordinates)} points from {file_name}")
 
             # Load a fresh copy of the base map as the replay canvas
-            self.replay_map_image = Image.open(
-                r"C:\Users\C25Jimmy.Nguyen\OneDrive - afacademy.af.edu\Desktop\GUI CAPSTONE\Test2Map.png"
-            ).convert("RGB")
+            self.replay_map_image = Image.open("/home/dfec/Desktop/GUI CAPSTONE/Test2Map.png").convert("RGB")
             draw = ImageDraw.Draw(self.replay_map_image)
 
             # Store coordinates and initialize index
@@ -731,6 +682,7 @@ class MyWindow(Gtk.Window):
             print(f"Error in replay_points: {e}")
 
 
+
     def convert_to_pixels(self, lat, lon):
         """
         Converts latitude and longitude to pixel coordinates on the map.
@@ -775,8 +727,11 @@ class MyApp(Gtk.Application):
         win.start_csv_monitoring()
 
 def main():
-    rogue_csv_file = r"C:\Users\C25Jimmy.Nguyen\OneDrive - afacademy.af.edu\Desktop\GUI CAPSTONE\RogueCoords.csv"
-    discovery_csv_file = r"C:\Users\C25Jimmy.Nguyen\OneDrive - afacademy.af.edu\Desktop\GUI CAPSTONE\DiscoveryCoords.csv"
+
+    discovery_csv_file = "/home/dfec/cuas_24-25/agent_core/disco_position.csv"
+    rogue_csv_file = "/home/dfec/cuas_24-25/agent_core/rogue_position.csv"
+    #rogue_csv_file = "/home/dfec/Desktop/GUI CAPSTONE/RogueCoords.csv"
+    #discovery_csv_file = "/home/dfec/Desktop/GUI CAPSTONE/DiscoveryCoords.csv"
     app = MyApp(rogue_csv_file,discovery_csv_file)
     app.run(None)
 
