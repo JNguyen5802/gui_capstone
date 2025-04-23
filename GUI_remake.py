@@ -1,6 +1,6 @@
-import gi, webbrowser, os, csv, time
+import gi, os, csv, time
 import numpy as np
-import openpyxl, xlsxwriter, cairo, shutil, datetime
+import openpyxl, shutil, datetime, re
 from threading import Thread  # Correct import for threading
 os.environ["LIBGL_ALWAYS_SOFTWARE"] = "1"
 os.environ["GDK_RENDERING"] = "cairo"  # or "gl"
@@ -8,7 +8,7 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk, Gio, Gdk  # Import Gdk for applying the CSS
 from PIL import Image, ImageDraw
 from gi.repository import GdkPixbuf, GLib
-import openpyxl, re
+from typing import List
 
 def clean_coordinate(value):
     """
@@ -27,7 +27,7 @@ def clean_coordinate(value):
 
     return None
 
-def read_coordinates(file_path):
+def read_coordinates(file_path: str) -> List[float | int]:
     """
     Reads latitude and longitude coordinates from a CSV or Excel (.xlsx) file.
     Supports formats with BREAK lines and standard telemetry headers.
