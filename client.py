@@ -12,7 +12,7 @@ standalone: bool = False
 dVals: SynchronizedArray = multiprocessing.Array('d', 5)
 rVals: SynchronizedArray = multiprocessing.Array('d', 5)
 mode: Synchronized = multiprocessing.Value('i')
-time:  Synchronized = multiprocessing.Value('d')
+time:  SynchronizedArray = multiprocessing.Array('i', 2)
 state: SynchronizedArray = multiprocessing.Array('i', 3)
 
 state[0] = 0 # connection down
@@ -20,8 +20,8 @@ state[1] = 1 # spin
 
 rogue: List[Tuple[float, float]] = list()
 disco: List[Tuple[float, float]] = list()
-last = 0.0
-time.value = 0.0
+time[0] = 0.0
+time[1] = 0.0
 
 def internal_runner(dVals: SynchronizedArray, rVals: SynchronizedArray, mode: Synchronized, state: SynchronizedArray, time: Synchronized, path: str):
     import socket
@@ -47,11 +47,12 @@ def internal_runner(dVals: SynchronizedArray, rVals: SynchronizedArray, mode: Sy
                 connection = client.accept()[0]
                 data = connection.recv(1024)
                 msg: Tuple[List[float], List[float], float, int] = tuple(json.loads(data))
+                time[1] = time[0]
                 for i in range(5):
                     dVals[i] = msg[0][i]
                     rVals[i] = msg[1][i]
-                    time.value = float(msg[2])
-                    mode.value = int(msg[3])
+                time[0] = float(msg[2])
+                mode.value = int(msg[3])
         except InterruptedError:
             print("IPC UNIX socket connection closed")
             conn_kill(connection)
@@ -62,7 +63,7 @@ def internal_runner(dVals: SynchronizedArray, rVals: SynchronizedArray, mode: Sy
         sys.exit(0)
 
 def getVals():
-    if time.value != last:
+    if time[0] != time[1]:
         disco.append((dVals[0], dVals[1]))
         if rVals[0] != 0.0:
             rogue.append((rVals[0], rVals[1]))
@@ -72,7 +73,7 @@ def getMode() -> int:
     return mode.value
 
 def getTimestamp():
-    return float(time.value)
+    return float(time[0])
 
 def isConnected():
     return True if state[0] == 1 else False
