@@ -21,6 +21,7 @@ state[1] = 1 # spin
 rogue: List[Tuple[float, float]] = list()
 disco: List[Tuple[float, float]] = list()
 last = 0.0
+time.value = 0.0
 
 def internal_runner(dVals: SynchronizedArray, rVals: SynchronizedArray, mode: Synchronized, state: SynchronizedArray, time: Synchronized, path: str):
     import socket
@@ -54,6 +55,9 @@ def internal_runner(dVals: SynchronizedArray, rVals: SynchronizedArray, mode: Sy
         except InterruptedError:
             print("IPC UNIX socket connection closed")
             conn_kill(connection)
+        except KeyboardInterrupt:
+            print("Exiting")
+            conn_kill(connection)
     finally:
         sys.exit(0)
 
@@ -66,6 +70,12 @@ def getVals():
 
 def getMode() -> int:
     return mode.value
+
+def getTimestamp():
+    return float(time.value)
+
+def isConnected():
+    return True if state[0] == 1 else False
 
 def unix_handler(sig, frame):
     state[1] = 0 # stop
