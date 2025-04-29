@@ -12,7 +12,7 @@ standalone: bool = False
 dVals: SynchronizedArray = multiprocessing.Array('d', 5)
 rVals: SynchronizedArray = multiprocessing.Array('d', 5)
 mode: Synchronized = multiprocessing.Value('i')
-time:  SynchronizedArray = multiprocessing.Array('i', 2)
+time:  SynchronizedArray = multiprocessing.Array('d', 2)
 state: SynchronizedArray = multiprocessing.Array('i', 3)
 
 state[0] = 0 # connection down
@@ -67,7 +67,10 @@ def getVals():
         disco.append((dVals[0], dVals[1]))
         if rVals[0] != 0.0:
             rogue.append((rVals[0], rVals[1]))
-    return (disco, rogue)
+    return disco, rogue
+
+# def getVals():
+#     return (dVals[0], dVals[1]), (rVals[0], rVals[1])
 
 def getMode() -> int:
     return mode.value

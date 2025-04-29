@@ -1,14 +1,23 @@
 import gi, os, csv, time
 import numpy as np
 import openpyxl, shutil, datetime, re
+import subprocess
 from threading import Thread  # Correct import for threading
-os.environ["LIBGL_ALWAYS_SOFTWARE"] = "1"
-os.environ["GDK_RENDERING"] = "cairo"  # or "gl"
+# os.environ["LIBGL_ALWAYS_SOFTWARE"] = "1"
+os.environ["GDK_RENDERING"] = "gl"  # or "gl"
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk, Gio, Gdk  # Import Gdk for applying the CSS
 from PIL import Image, ImageDraw
 from gi.repository import GdkPixbuf, GLib
 from typing import List
+import client
+
+# Load drone images as PIL images (ensure they are small e.g. 20x20 px)
+disco_icon = Image.open("/home/dfec/Desktop/GUI CAPSTONE/DiscoveryDrone_Transparent.png").convert("RGBA")
+disco_icon = disco_icon.resize((50, 50), Image.ANTIALIAS)  # Resize to 20x20 pixels
+
+rogue_icon = Image.open("/home/dfec/Desktop/GUI CAPSTONE/RogueDrone_Transparent.png").convert("RGBA")
+rogue_icon = rogue_icon.resize((50, 50), Image.ANTIALIAS)  # Resize to 20x20 pixels
 
 def clean_coordinate(value):
     """
@@ -86,6 +95,20 @@ def read_coordinates(file_path: str) -> List[float | int]:
 
 
 class MyWindow(Gtk.Window):
+
+    # def update_status_label(self, value):
+    #     # Remove previous status class
+    #     status_label.remove_css_class("status-ok")
+    #     status_label.remove_css_class("status-error")
+
+    #     if value == 1:
+    #         status_label.set_text("AgentCore: Connected")
+    #         status_label.add_css_class("status-ok")
+    #     else:
+    #         status_label.set_text("AgentCore: Unavailable")
+    #         status_label.add_css_class("status-error")
+    #     self.apply_css()
+    #     print(type(status_label))
     
     def refresh_image(self, image_path=None, pixbuf=None):
         """
@@ -108,9 +131,8 @@ class MyWindow(Gtk.Window):
         except Exception as e:
             print(f"Error refreshing image: {e}")
 
-
-
     def __init__(self, app, rogue_csv_file, discovery_csv_file):
+        global status_label
         super().__init__(title="C-UAS Interface 2025")
         self.set_default_size(1000, 600)
         self.set_application(app)  # Link the window to the application
@@ -152,12 +174,18 @@ class MyWindow(Gtk.Window):
         main_box.set_vexpand(True)  # Allow vertical expansion
         self.set_child(main_box)  # Set main_box as the main widget of the window
 
+      
+
         # ------------------------ Left Side Panel -----------------------
         left_panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         left_panel.set_size_request(300, -1)  # Set a fixed width for the side panel
         left_panel.add_css_class("side-panel")  # Add a CSS class for styling
         left_panel.set_vexpand(True)  # Allow the side panel to expand vertically
         
+        self.left_panel = left_panel  # Save reference to add widgets later
+
+
+
         # Create a frame (rectangle) for the title and make it expand horizontally
         legend_frame = Gtk.Frame()
         legend_frame.add_css_class("title-frame")  # Add CSS class for further styling
@@ -176,15 +204,17 @@ class MyWindow(Gtk.Window):
         left_panel.append(legend_box)
 
         # Create a frame (rectangle) for the title and make it expand horizontally
-        status_frame = Gtk.Frame()
-        status_frame.add_css_class("title-frame")  # Add CSS class for further styling
-        status_label = Gtk.Label(label="Status Panel", halign=Gtk.Align.CENTER)
-        status_frame.set_child(status_label)  # Add the label inside the frame
-        left_panel.append(status_frame)
+        # status_frame = Gtk.Frame()
+        # status_frame.add_css_class("title-frame")  # Add CSS class for further styling
+        # status_label = Gtk.Label(label="Status Panel: Unknown", halign=Gtk.Align.CENTER)
+        # status_label.add_css_class("status-label")  # Base style
+        # status_frame.set_child(status_label)  # Add the label inside the frame
+        # left_panel.append(status_frame)
 
         # Add the side panel to the main container
         main_box.append(left_panel)
-
+        # self.update_status_label(client.isConnected())
+        
         # ----------------------- Main Content Area (Center) ----------------
         self.content_area = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.content_area.add_css_class("content-area")  # Add a CSS class for styling
@@ -273,6 +303,19 @@ class MyWindow(Gtk.Window):
         reload_data_button.connect("clicked", self.on_reload_data_clicked)  # Connect to method
         right_panel.append(reload_data_button)
 
+        start_flight_button = Gtk.Button(label="Start Record")
+        start_flight_button.set_margin_top(10)
+        start_flight_button.set_margin_top(10)
+        start_flight_button.set_margin_top(10)
+        start_flight_button.set_margin_top(10)
+        start_flight_button.set_margin_bottom(10)
+        start_flight_button.set_margin_start(10)
+        start_flight_button.set_margin_end(10)
+        start_flight_button.set_size_request(200,60)
+        start_flight_button.add_css_class("large-button")
+        start_flight_button.connect("clicked", self.on_start_flight_button_clicked)
+        right_panel.append(start_flight_button)
+
         main_box.append(right_panel)
 
         # Apply the custom CSS styles
@@ -308,6 +351,18 @@ class MyWindow(Gtk.Window):
             .save-button {
                 padding: 20px;
                 font-size: 18px;
+            }
+            .status-label {
+                padding: 10px;
+                border-radius: 5px;
+                color: white;
+                font-weight: bold;
+            }
+            .status-ok {
+                background-color: #4CAF50; /* Green */
+            }
+            .status-error {
+                background-color: #F44336; /* Red */
             }
             """
             css_provider.load_from_data(css)
@@ -358,6 +413,7 @@ class MyWindow(Gtk.Window):
         self.refresh_image("/home/dfec/Desktop/GUI CAPSTONE/Test2Map.png")
 
     def on_reload_data_clicked(self, button):
+        
         """
         Re-enables auto-reload and updates the map with current data.
         """
@@ -365,9 +421,7 @@ class MyWindow(Gtk.Window):
         self.auto_reload = True
 
         # Force a data update immediately
-        self.rogue_coordinates = read_coordinates(self.rogue_csv_file_path)
-        self.discovery_coordinates = read_coordinates(self.discovery_csv_file_path)
-
+        (self.discovery_coordinates, self.rogue_coordinates) = client.getVals()
         self.update_map(self.rogue_coordinates, self.discovery_coordinates)
 
     def on_save_rogue_coords_clicked(self, button):
@@ -407,6 +461,16 @@ class MyWindow(Gtk.Window):
         except Exception as e:
             print(f"Error saving discovery coordinates: {e}")
 
+    def on_start_flight_button_clicked(self, button):
+        script_path = "/home/dfec/camera_start.sh"
+
+        try:
+            os.chmod(script_path, 0o755)
+            subprocess.Popen([script_path])
+            print("Camera script started.")
+
+        except Exception as e:
+            print(f"Failed to start script: {e}")
 
     def on_replay_button_clicked(self, button):
         """
@@ -488,7 +552,6 @@ class MyWindow(Gtk.Window):
         except Exception as e:
             print(f"Error clearing map: {e}")
 
-
     def on_clear_map_clicked(self, button):
         """
         Clears the map and resets it to the base image.
@@ -496,7 +559,6 @@ class MyWindow(Gtk.Window):
         print("Clear Map button clicked.")
         self.clear_map()
         self.auto_reload = False  # Disable auto-reloading if needed
-
 
     def start_csv_monitoring(self):
         """
@@ -510,6 +572,9 @@ class MyWindow(Gtk.Window):
                         time.sleep(2)  # Sleep longer when disabled to avoid spamming logs
                         continue  # Skip the rest of the loop
 
+                    # Save the data to class variables for later use
+                    (self.discovery_coordinates, self.rogue_coordinates) = client.getVals()
+
                     # Read the rogue and discovery coordinates
                     rogue_coordinates = read_coordinates(self.rogue_csv_file_path)
                     discovery_coordinates = read_coordinates(self.discovery_csv_file_path)
@@ -517,9 +582,9 @@ class MyWindow(Gtk.Window):
                     # Safely update the map on the main thread
                     GLib.idle_add(self.update_map, rogue_coordinates, discovery_coordinates)
 
-                    # Save the data to class variables for later use
-                    self.rogue_coordinates = rogue_coordinates
-                    self.discovery_coordinates = discovery_coordinates
+                    
+                    # self.rogue_coordinates = rogue_coordinates
+                    # self.discovery_coordinates = discovery_coordinates
 
                 except Exception as e:
                     print(f"Error in monitor_csv_file: {e}")
@@ -527,11 +592,10 @@ class MyWindow(Gtk.Window):
                 time.sleep(0.5)  # Sleep for 500ms before checking again
 
 
-        # ✅ Passes function without self issue
+        # Passes function without self issue
         monitor_thread = Thread(target=monitor_csv_file)
         monitor_thread.daemon = True  # Ensures the thread stops when the application closes
         monitor_thread.start()
-
 
     def update_map(self, rogue_coordinates, discovery_coordinates):
         """
@@ -540,6 +604,8 @@ class MyWindow(Gtk.Window):
         :param discovery_coordinates: List of tuples (latitude, longitude) for discovery drones.
         """
         try:
+            # win.update_status_label(client.isConnected())
+
             # Clear the map and start with the base image
             if not hasattr(self, "base_map_pixbuf"):
                 self.base_map_pixbuf = GdkPixbuf.Pixbuf.new_from_file(
@@ -587,11 +653,27 @@ class MyWindow(Gtk.Window):
                 pixel_y = int((lat1 - latitude) / lat_per_pixel)
                 draw.ellipse((pixel_x - 5, pixel_y - 5, pixel_x + 5, pixel_y + 5), fill=color, outline="black")
 
-            # Plot rogue and discovery coordinates
-            for coord in rogue_coordinates:
+            # Plot all but the last rogue coordinate as circles
+            for coord in rogue_coordinates[:-1]:
                 plot_point(coord, "red")
-            for coord in discovery_coordinates:
+
+            # Plot last rogue coordinate with the rogue drone image
+            if rogue_coordinates:
+                lat, lon = rogue_coordinates[-1]
+                pixel_x = int((lon - lon1) / lon_per_pixel)
+                pixel_y = int((lat1 - lat) / lat_per_pixel)
+                pil_image.paste(rogue_icon, (pixel_x - rogue_icon.width // 2, pixel_y - rogue_icon.height // 2), mask=rogue_icon)
+
+            # Same for discovery
+            for coord in discovery_coordinates[:-1]:
                 plot_point(coord, "green")
+
+            if discovery_coordinates:
+                lat, lon = discovery_coordinates[-1]
+                pixel_x = int((lon - lon1) / lon_per_pixel)
+                pixel_y = int((lat1 - lat) / lat_per_pixel)
+                pil_image.paste(disco_icon, (pixel_x - disco_icon.width // 2, pixel_y - disco_icon.height // 2), mask=disco_icon)
+
 
             # Convert back to Pixbuf for GTK
             updated_array = np.array(pil_image)
@@ -681,8 +763,6 @@ class MyWindow(Gtk.Window):
         except Exception as e:
             print(f"Error in replay_points: {e}")
 
-
-
     def convert_to_pixels(self, lat, lon):
         """
         Converts latitude and longitude to pixel coordinates on the map.
@@ -714,6 +794,22 @@ class MyWindow(Gtk.Window):
     def update_map_safe(self, rogue_coordinates, discovery_coordinates):
         GLib.idle_add(self.update_map, rogue_coordinates, discovery_coordinates)
 
+def cv_frame_to_pixbuf(frame):
+    """
+    Converts an OpenCV BGR image to a GdkPixbuf.Pixbuf suitable for display in GTK.
+    """
+    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    h, w, c = frame_rgb.shape
+    return GdkPixbuf.Pixbuf.new_from_data(
+        frame_rgb.tobytes(),
+        GdkPixbuf.Colorspace.RGB,
+        False,
+        8,
+        w,
+        h,
+        w * c
+    )
+
 class MyApp(Gtk.Application):
     def __init__(self, rogue_csv_file, discovery_csv_file):
         super().__init__(application_id="org.example.myapp", flags=Gio.ApplicationFlags.FLAGS_NONE)
@@ -721,6 +817,7 @@ class MyApp(Gtk.Application):
         self.discovery_csv_file = discovery_csv_file   
 
     def do_activate(self):
+        global win
         # Define the path to the CSV file
         win = MyWindow(self, self.rogue_csv_file, self.discovery_csv_file)
         win.present()
@@ -728,6 +825,8 @@ class MyApp(Gtk.Application):
 
 def main():
 
+    client.start()
+    
     discovery_csv_file = "/home/dfec/cuas_24-25/agent_core/disco_position.csv"
     rogue_csv_file = "/home/dfec/cuas_24-25/agent_core/rogue_position.csv"
     #rogue_csv_file = "/home/dfec/Desktop/GUI CAPSTONE/RogueCoords.csv"
