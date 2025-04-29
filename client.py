@@ -69,9 +69,6 @@ def getVals():
             rogue.append((rVals[0], rVals[1]))
     return disco, rogue
 
-# def getVals():
-#     return (dVals[0], dVals[1]), (rVals[0], rVals[1])
-
 def getMode() -> int:
     return mode.value
 
