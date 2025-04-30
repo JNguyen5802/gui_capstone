@@ -1,4 +1,4 @@
-import gi, os, csv, time, openpyxl, shutil, datetime, re, subprocess
+import gi, os, csv, openpyxl, shutil, datetime, re, subprocess
 import numpy as np
 os.environ["GDK_RENDERING"] = "gl"
 gi.require_version("Gtk", "4.0")
@@ -12,13 +12,18 @@ BASE_PATH = os.path.realpath(os.path.dirname(__file__))
 def expand(filename: str):
     return os.path.join(BASE_PATH, filename)
 
+def np2pixbuf(nda: np.ndarray) -> GdkPixbuf.Pixbuf:
+    return GdkPixbuf.Pixbuf.new_from_data(
+        nda.tobytes(), GdkPixbuf.Colorspace.RGB,
+        False, 8, nda.shape[1], nda.shape[0], nda.shape[1] * 3)
+
 # Load drone images as PIL images (ensure they are small e.g. 20x20 px)
 disco_icon = Image.open(expand("DiscoveryDrone_Transparent.png")).convert("RGBA")
 disco_icon = disco_icon.resize((50, 50), Image.Resampling.LANCZOS)  # Resize to 20x20 pixels
 
 rogue_icon = Image.open(expand("RogueDrone_Transparent.png")).convert("RGBA")
 rogue_icon = rogue_icon.resize((50, 50), Image.Resampling.LANCZOS)  # Resize to 20x20 pixels
-
+    
 # Define reference points for the top-left, bottom-left, and top-right corners
 LAT1, LON1 = 39.019045, -104.894301  # Top-left
 LAT3 = 39.017430  # Bottom-left
@@ -26,15 +31,22 @@ LON2 = -104.892113  # Top-right
 LAT_RANGE = LAT1 - LAT3
 LON_RANGE = LON2 - LON1
 
-def np2pixbuf(nda: np.ndarray) -> GdkPixbuf.Pixbuf:
-    return GdkPixbuf.Pixbuf.new_from_data(
-        nda.tobytes(), GdkPixbuf.Colorspace.RGB,
-        False, 8, nda.shape[1], nda.shape[0], nda.shape[1] * 3)
+clean_map_pil = Image.open(expand("Map.png")).convert("RGB")
+clean_map_np = np.array(clean_map_pil)
+clean_map_pixbuf = np2pixbuf(clean_map_np)
+clean_map_np = None
+HEIGHT = clean_map_pil.height
+WIDTH = clean_map_pil.width
+LAT_PER_PIX = LAT_RANGE / HEIGHT
+LON_PER_PIX = LON_RANGE / WIDTH
+
+# Start IPC client
+client.start()
     
-def plot_icons(image: Image.Image, icon: Image.Image, coordinates: List[Tuple[float, float]], lon_per_pixel: float, lat_per_pixel: float):
+def plot_icons(image: Image.Image, icon: Image.Image, coordinates: List[Tuple[float, float]]):
     lat, lon = coordinates[-1]
-    pixel_x = int(round((lon - LON1) / lon_per_pixel))
-    pixel_y = int(round((LAT1 - lat) / lat_per_pixel))
+    pixel_x = round((lon - LON1) / LON_PER_PIX)
+    pixel_y = round((LAT1 - lat) / LAT_PER_PIX)
     image.paste(icon, (pixel_x - icon.width // 2, pixel_y - icon.height // 2), mask=icon)
 
 def clean_coordinate(value: int | float | str):
@@ -131,11 +143,6 @@ class MyWindow(Gtk.Window):
         self.set_application(app)  # Link the window to the application
 
         self.auto_reload = True
-        
-        self.clean_map_pil = Image.open(expand("Test2Map.png")).convert("RGB")
-        self.clean_map_np = np.array(self.replay_map_image)
-        self.clean_map_pixbuf = np2pixbuf(self.clean_map_np)
-        del self.clean_map_np
 
         #### C H A N G E S ####
         # Store coordinates
@@ -197,7 +204,7 @@ class MyWindow(Gtk.Window):
         self.map_image_widget.set_hexpand(True)
         self.map_image_widget.set_vexpand(True)
         self.content_area.append(self.map_image_widget)
-        self.refresh_image(self.clean_map_pixbuf)
+        self.refresh_image(clean_map_pixbuf)
 
         # ----------------------- Right Side Panel ----------------------
         right_panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -270,7 +277,7 @@ class MyWindow(Gtk.Window):
         Resets map to original image.
         """
         try:
-            self.refresh_image(self.clean_map_pixbuf)
+            self.refresh_image(clean_map_pixbuf)
             self.content_area.queue_draw()
         except Exception as e:
             print(f"Error clearing map: {e}")
@@ -280,9 +287,10 @@ class MyWindow(Gtk.Window):
         Re-enables auto-reload and updates the map.
         """
         print("Reload Data button clicked. Enabling auto-reload.")
-        self.auto_reload = True
+        self.auto_reload = False
         self.discovery_coordinates, self.rogue_coordinates = client.getVals()
         self.update_map(self.rogue_coordinates, self.discovery_coordinates)
+        self.auto_reload = True
 
     def on_save_rogue_coords_clicked(self, button):
         """
@@ -360,30 +368,8 @@ class MyWindow(Gtk.Window):
         Updates the map with rogue and discovery coordinates.
         """
         try:
-            self.base_map_pixbuf = self.clean_map_pixbuf.copy()
-            
-            # Convert Pixbuf to a PIL Image
-            width, height = self.base_map_pixbuf.get_width(), self.base_map_pixbuf.get_height()
-            rowstride, n_channels = self.base_map_pixbuf.get_rowstride(), self.base_map_pixbuf.get_n_channels()
-            pixels = self.base_map_pixbuf.get_pixels()
-
-            array = np.frombuffer(pixels, dtype=np.uint8).reshape((height, rowstride))
-
-            if n_channels == 1:
-                # Convert grayscale to RGB
-                image_data = np.stack((array[:, :width],) * 3, axis=-1)
-            elif n_channels == 3:
-                image_data = array[:, :width * 3].reshape((height, width, 3))
-            elif n_channels == 4:
-                image_data = array[:, :width * 4].reshape((height, width, 4))[:, :, :3]
-            else:
-                raise ValueError(f"Unexpected number of channels: {n_channels}")
-
-            pil_image = Image.fromarray(image_data, "RGB")
+            pil_image = clean_map_pil.copy()
             draw = ImageDraw.Draw(pil_image)
-
-            lat_per_pixel = LAT_RANGE / height
-            lon_per_pixel = LON_RANGE / width
 
             # Function to plot points
             def plot_point(coordinate: Tuple[float, float], color: str):
@@ -391,8 +377,8 @@ class MyWindow(Gtk.Window):
                 if not (LAT3 <= latitude <= LAT1) or not (LON1 <= longitude <= LON2):
                     print(f"Warning: Latitude {latitude} or Longitude {longitude} out of bounds.")
                     return None
-                pixel_x = int((longitude - LON1) / lon_per_pixel)
-                pixel_y = int((LAT1 - latitude) / lat_per_pixel)
+                pixel_x = int((longitude - LON1) / LON_PER_PIX)
+                pixel_y = int((LAT1 - latitude) / LAT_PER_PIX)
                 draw.ellipse((pixel_x - 5, pixel_y - 5, pixel_x + 5, pixel_y + 5), fill=color, outline="black")
 
             # Plot all but the last rogue coordinate as circles
@@ -401,14 +387,14 @@ class MyWindow(Gtk.Window):
 
             # Plot last rogue coordinate with the rogue drone image
             if rogue_coordinates:
-                plot_icons(pil_image, rogue_coordinates, rogue_coordinates, lon_per_pixel, lat_per_pixel)
+                plot_icons(pil_image, rogue_icon, rogue_coordinates)
 
             # Same for discovery
             for coord in discovery_coordinates[:-1]:
                 plot_point(coord, "green")
 
             if discovery_coordinates:
-                plot_icons(pil_image, disco_icon, discovery_coordinates, lon_per_pixel, lat_per_pixel)
+                plot_icons(pil_image, disco_icon, discovery_coordinates)
 
             # Convert back to Pixbuf for GTK
             updated_array = np.array(pil_image)
@@ -439,7 +425,7 @@ class MyWindow(Gtk.Window):
             print(f"Loaded {len(coordinates)} points from {file_name}")
 
             # Load a fresh copy of the base map as the replay canvas
-            self.replay_map_image = self.clean_map_pil.copy()
+            self.replay_map_image = clean_map_pil.copy()
             draw = ImageDraw.Draw(self.replay_map_image)
 
             # Store coordinates and initialize index
@@ -489,36 +475,29 @@ class MyWindow(Gtk.Window):
         """
 
         # Get map dimensions (match your actual base image size)
-        width, height = 1000, 600  # Adjust these values to match the base image
+        # width, height = 1000, 600  # Adjust these values to match the base image
 
         # Convert lat/lon to pixel coordinates
         try:
-            pixel_x = int(((lon - LON1) / LON_RANGE) * width)
-            pixel_y = int(((LAT1 - lat) / LAT_RANGE) * height)
+            pixel_x = round(((lon - LON1) / LON_RANGE) * WIDTH)
+            pixel_y = round(((LAT1 - lat) / LAT_RANGE) * HEIGHT)
 
             # print(f"Lat: {lat}, Lon: {lon} -> Pixel: ({pixel_x}, {pixel_y})")  # Debugging output
             return pixel_x, pixel_y
         except Exception as e:
             print(f"Error in convert_to_pixels: {e}")
             return int(0), int(0)  # Return (0,0) if an error occurs
-    
-    def update_map_safe(self, rogue_coordinates, discovery_coordinates):
-        GLib.idle_add(self.update_map, rogue_coordinates, discovery_coordinates)
 
 class MyApp(Gtk.Application):
     def __init__(self):
         super().__init__(application_id="org.example.myapp", flags=Gio.ApplicationFlags.FLAGS_NONE)
 
     def do_activate(self):
-        global win
         win = MyWindow(self)
         win.present()
         win.start_csv_monitoring()
 
 def main():
-
-    client.start()
-
     app = MyApp()
     app.run(None)
 
