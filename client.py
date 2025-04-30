@@ -23,7 +23,8 @@ disco: List[Tuple[float, float]] = list()
 time[0] = 0.0
 time[1] = 0.0
 
-def internal_runner(dVals: SynchronizedArray, rVals: SynchronizedArray, mode: Synchronized, state: SynchronizedArray, time: Synchronized, path: str):
+def internal_runner(dVals: SynchronizedArray, rVals: SynchronizedArray,
+                    mode: Synchronized, state: SynchronizedArray, time: Synchronized, path: str):
     import socket
     import json
 
@@ -53,6 +54,8 @@ def internal_runner(dVals: SynchronizedArray, rVals: SynchronizedArray, mode: Sy
                     rVals[i] = msg[1][i]
                 time[0] = float(msg[2])
                 mode.value = int(msg[3])
+                if standalone:
+                    print(msg)
         except:
             print("IPC UNIX socket connection closed")
             conn_kill(connection)
@@ -65,6 +68,10 @@ def getVals():
         if rVals[0] != 0.0:
             rogue.append((rVals[0], rVals[1]))
     return disco, rogue
+
+def clearVals():
+    rogue.clear()
+    disco.clear()
 
 def getMode() -> int:
     return mode.value
@@ -95,3 +102,7 @@ def start():
     signal.signal(signal.SIGINT, unix_handler)
         
     p1.start()
+    
+if __name__ == "__main__":
+    standalone = True
+    start()

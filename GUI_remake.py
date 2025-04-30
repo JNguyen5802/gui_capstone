@@ -1,21 +1,25 @@
-import gi, os, csv, openpyxl, shutil, datetime, re, subprocess
-import numpy as np
-os.environ["GDK_RENDERING"] = "gl"
-gi.require_version("Gtk", "4.0")
-from gi.repository import Gtk, Gio, Gdk, GdkPixbuf, GLib
+import gi, openpyxl, client
+from os import path, environ
 from PIL import Image, ImageDraw
 from typing import List, Tuple
-import client
+from math import isnan, nan
+from re import search
+from csv import reader
+from datetime import datetime
+from shutil import copy
+from subprocess import Popen
+environ["GDK_RENDERING"] = "gl"
+gi.require_version("Gtk", "4.0")
+from gi.repository import Gtk, Gio, Gdk, GdkPixbuf, GLib
 
-BASE_PATH = os.path.realpath(os.path.dirname(__file__))
+BASE_PATH = path.realpath(path.dirname(__file__))
 
 def expand(filename: str):
-    return os.path.join(BASE_PATH, filename)
+    return path.join(BASE_PATH, filename)
 
-def np2pixbuf(nda: np.ndarray) -> GdkPixbuf.Pixbuf:
-    return GdkPixbuf.Pixbuf.new_from_data(
-        nda.tobytes(), GdkPixbuf.Colorspace.RGB,
-        False, 8, nda.shape[1], nda.shape[0], nda.shape[1] * 3)
+def pil2pixbuf(img: Image.Image) -> GdkPixbuf.Pixbuf:
+    return GdkPixbuf.Pixbuf.new_from_bytes(GLib.Bytes.new(img.tobytes()), GdkPixbuf.Colorspace.RGB,
+        True, 8, img.size[0], img.size[1], img.size[0] * 4)
 
 # Load drone images as PIL images (ensure they are small e.g. 20x20 px)
 disco_icon = Image.open(expand("DiscoveryDrone_Transparent.png")).convert("RGBA")
@@ -32,9 +36,7 @@ LAT_RANGE = LAT1 - LAT3
 LON_RANGE = LON2 - LON1
 
 clean_map_pil = Image.open(expand("Map.png")).convert("RGB")
-clean_map_np = np.array(clean_map_pil)
-clean_map_pixbuf = np2pixbuf(clean_map_np)
-clean_map_np = None
+clean_map_pixbuf = pil2pixbuf(clean_map_pil)
 HEIGHT = clean_map_pil.height
 WIDTH = clean_map_pil.width
 LAT_PER_PIX = LAT_RANGE / HEIGHT
@@ -59,11 +61,11 @@ def clean_coordinate(value: int | float | str):
     if isinstance(value, str):
         value = value.strip().replace(" ", "")
         # Ensure it follows the correct format (detect negative and decimal)
-        match = re.search(r"-?\d+\.\d+", value)
+        match = search(r"-?\d+\.\d+", value)
         if match:
             return float(match.group())  # Convert to float while preserving precision
 
-    return np.nan
+    return nan
 
 def read_coordinates(file_path: str) -> List[Tuple[float, float]]:
     """
@@ -83,15 +85,15 @@ def read_coordinates(file_path: str) -> List[Tuple[float, float]]:
                     continue
                 latitude = clean_coordinate(row[1])
                 longitude = clean_coordinate(row[2])
-                if latitude is not np.nan and longitude is not np.nan:
+                if not isnan(latitude) and not isnan(longitude):
                     if -90 <= latitude <= 90 and -180 <= longitude <= 180:
                         coordinates.append((latitude, longitude))
 
         elif file_path.lower().endswith(".csv"):
             with open(file_path, mode='r', newline='', encoding='utf-8') as file:
-                reader = csv.reader(file)
+                read = reader(file)
                 headers = []
-                for row in reader:
+                for row in read:
                     if not row or row[0].startswith("BREAK"):
                         continue
 
@@ -111,7 +113,7 @@ def read_coordinates(file_path: str) -> List[Tuple[float, float]]:
                             latitude = clean_coordinate(lat_value)
                             longitude = clean_coordinate(lon_value)
 
-                            if latitude is not np.nan and longitude is not np.nan:
+                            if not isnan(latitude) and not isnan(longitude):
                                 if -90 <= latitude <= 90 and -180 <= longitude <= 180:
                                     coordinates.append((latitude, longitude))
                         except Exception as e:
@@ -277,6 +279,7 @@ class MyWindow(Gtk.Window):
         Resets map to original image.
         """
         try:
+            client.clearVals()
             self.refresh_image(clean_map_pixbuf)
             self.content_area.queue_draw()
         except Exception as e:
@@ -297,11 +300,8 @@ class MyWindow(Gtk.Window):
         Copies RogueCoords.csv with timestamp.
         """
         try:
-            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            shutil.copy(
-                expand("RogueCoords.csv"),
-                expand(f"RogueCoords_Copy_{timestamp}.csv")
-            )
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            copy(expand("RogueCoords.csv"), expand(f"RogueCoords_Copy_{timestamp}.csv"))
             print(f"Saved RogueCoords copy")
         except Exception as e:
             print(f"Error copying RogueCoords: {e}")
@@ -312,7 +312,7 @@ class MyWindow(Gtk.Window):
         """
         try:
             new_file = expand(f"discovery_coords_copy_{self.discovery_save_counter}.csv")
-            shutil.copy(expand("DiscoveryCoords.csv"), new_file)
+            copy(expand("DiscoveryCoords.csv"), new_file)
             print(f"Saved discovery coordinates copy {self.discovery_save_counter}")
             self.discovery_save_counter += 1
         except Exception as e:
@@ -320,7 +320,7 @@ class MyWindow(Gtk.Window):
 
     def on_start_flight_button_clicked(self, button):
         try:
-            subprocess.Popen(["/home/dfec/camera_start.sh"])
+            Popen(["/home/dfec/camera_start.sh"])
             print("Camera script started.")
         except Exception as e:
             print(f"Failed to start script: {e}")
@@ -360,7 +360,7 @@ class MyWindow(Gtk.Window):
                     GLib.idle_add(self.update_map, self.rogue_coordinates, self.discovery_coordinates)
                 except Exception as e:
                     print(f"Monitoring error: {e}")
-        GLib.timeout_add(100, monitor_changes)
+        GLib.timeout_add(200, monitor_changes)
         
 
     def update_map(self, rogue_coordinates: List[Tuple[float, float]], discovery_coordinates: List[Tuple[float, float]]):
@@ -397,8 +397,7 @@ class MyWindow(Gtk.Window):
                 plot_icons(pil_image, disco_icon, discovery_coordinates)
 
             # Convert back to Pixbuf for GTK
-            updated_array = np.array(pil_image)
-            updated_pixbuf = np2pixbuf(updated_array)
+            updated_pixbuf = pil2pixbuf(pil_image)
             texture = Gdk.Texture.new_for_pixbuf(updated_pixbuf)
 
             # Update the Gtk.Picture widget
@@ -450,8 +449,7 @@ class MyWindow(Gtk.Window):
                         draw.line([(prev_x, prev_y), (pixel_x, pixel_y)], fill="red", width=2)
 
                     # Update map widget with current replay frame
-                    updated_array = np.array(self.replay_map_image)
-                    updated_pixbuf = np2pixbuf(updated_array)
+                    updated_pixbuf = pil2pixbuf(self.replay_map_image)
                     texture = Gdk.Texture.new_for_pixbuf(updated_pixbuf)
                     self.map_image_widget.set_paintable(texture)
                     self.content_area.queue_draw()
