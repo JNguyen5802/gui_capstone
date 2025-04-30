@@ -1,6 +1,5 @@
 import gi, os, csv, time, openpyxl, shutil, datetime, re, subprocess
 import numpy as np
-from threading import Thread
 os.environ["GDK_RENDERING"] = "gl"
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk, Gio, Gdk, GdkPixbuf, GLib
@@ -29,14 +28,14 @@ LON_RANGE = LON2 - LON1
 
 def np2pixbuf(nda: np.ndarray) -> GdkPixbuf.Pixbuf:
     return GdkPixbuf.Pixbuf.new_from_data(
-        nda.tobytes(),
-        GdkPixbuf.Colorspace.RGB,
-        False,
-        8,
-        nda.shape[1],
-        nda.shape[0],
-        nda.shape[1] * 3
-    )
+        nda.tobytes(), GdkPixbuf.Colorspace.RGB,
+        False, 8, nda.shape[1], nda.shape[0], nda.shape[1] * 3)
+    
+def plot_icons(image: Image.Image, icon: Image.Image, coordinates: List[Tuple[float, float]], lon_per_pixel: float, lat_per_pixel: float):
+    lat, lon = coordinates[-1]
+    pixel_x = int(round((lon - LON1) / lon_per_pixel))
+    pixel_y = int(round((LAT1 - lat) / lat_per_pixel))
+    image.paste(icon, (pixel_x - icon.width // 2, pixel_y - icon.height // 2), mask=icon)
 
 def clean_coordinate(value: int | float | str):
     """
@@ -54,7 +53,7 @@ def clean_coordinate(value: int | float | str):
 
     return np.nan
 
-def read_coordinates(file_path: str) -> List[float]:
+def read_coordinates(file_path: str) -> List[Tuple[float, float]]:
     """
     Reads latitude and longitude coordinates from a CSV or Excel (.xlsx) file.
     Supports formats with BREAK lines and standard telemetry headers.
@@ -72,7 +71,7 @@ def read_coordinates(file_path: str) -> List[float]:
                     continue
                 latitude = clean_coordinate(row[1])
                 longitude = clean_coordinate(row[2])
-                if latitude is not None and longitude is not None:
+                if latitude is not np.nan and longitude is not np.nan:
                     if -90 <= latitude <= 90 and -180 <= longitude <= 180:
                         coordinates.append((latitude, longitude))
 
@@ -100,15 +99,14 @@ def read_coordinates(file_path: str) -> List[float]:
                             latitude = clean_coordinate(lat_value)
                             longitude = clean_coordinate(lon_value)
 
-                            if latitude is not None and longitude is not None:
+                            if latitude is not np.nan and longitude is not np.nan:
                                 if -90 <= latitude <= 90 and -180 <= longitude <= 180:
                                     coordinates.append((latitude, longitude))
                         except Exception as e:
                             print(f"Skipping row: {row} due to error: {e}")
-        
+
         else:
             print("Unsupported file extension")
-            return []
         return coordinates
 
     except Exception as e:
@@ -145,11 +143,7 @@ class MyWindow(Gtk.Window):
         self.discovery_coordinates = []
 
         # Initialize counters for save operations
-        self.rogue_save_counter = 1
         self.discovery_save_counter = 1
-
-        # Keep track of already plotted points
-        self.plotted_points = set()  # Use a set for quick lookup
 
         def create_legend_item(icon_path: str, text: str):
             item_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
@@ -342,7 +336,7 @@ class MyWindow(Gtk.Window):
 
     def handle_reply_response(self, dialog: Gtk.Dialog, response: Gtk.ResponseType, file_dropdown: Gtk.ComboBoxText):
         if response == Gtk.ResponseType.OK:
-            selected_file: str = file_dropdown.get_active_text()
+            selected_file = file_dropdown.get_active_text()
             if selected_file:
                 self.replay_points(selected_file, "replay_drone")
         dialog.destroy()
@@ -352,17 +346,14 @@ class MyWindow(Gtk.Window):
         Starts background CSV monitoring.
         """
         def monitor_changes():
-            while True:
-                if not self.auto_reload:
-                    time.sleep(2)
-                    continue
+            if self.auto_reload:
                 try:
                     self.discovery_coordinates, self.rogue_coordinates = client.getVals()
                     GLib.idle_add(self.update_map, self.rogue_coordinates, self.discovery_coordinates)
                 except Exception as e:
                     print(f"Monitoring error: {e}")
-                time.sleep(0.5)
-        Thread(target=monitor_changes, daemon=True).start()
+        GLib.timeout_add(100, monitor_changes)
+        
 
     def update_map(self, rogue_coordinates: List[Tuple[float, float]], discovery_coordinates: List[Tuple[float, float]]):
         """
@@ -410,20 +401,14 @@ class MyWindow(Gtk.Window):
 
             # Plot last rogue coordinate with the rogue drone image
             if rogue_coordinates:
-                lat, lon = rogue_coordinates[-1]
-                pixel_x = int((lon - LON1) / lon_per_pixel)
-                pixel_y = int((LAT1 - lat) / lat_per_pixel)
-                pil_image.paste(rogue_icon, (pixel_x - rogue_icon.width // 2, pixel_y - rogue_icon.height // 2), mask=rogue_icon)
+                plot_icons(pil_image, rogue_coordinates, rogue_coordinates, lon_per_pixel, lat_per_pixel)
 
             # Same for discovery
             for coord in discovery_coordinates[:-1]:
                 plot_point(coord, "green")
 
             if discovery_coordinates:
-                lat, lon = discovery_coordinates[-1]
-                pixel_x = int((lon - LON1) / lon_per_pixel)
-                pixel_y = int((LAT1 - lat) / lat_per_pixel)
-                pil_image.paste(disco_icon, (pixel_x - disco_icon.width // 2, pixel_y - disco_icon.height // 2), mask=disco_icon)
+                plot_icons(pil_image, disco_icon, discovery_coordinates, lon_per_pixel, lat_per_pixel)
 
             # Convert back to Pixbuf for GTK
             updated_array = np.array(pil_image)
@@ -447,7 +432,7 @@ class MyWindow(Gtk.Window):
 
             # Load coordinates
             coordinates = read_coordinates(file_name)
-            if not coordinates:
+            if len(coordinates) == 0:
                 print(f"No coordinates found in {file_name}")
                 return
 
@@ -497,7 +482,7 @@ class MyWindow(Gtk.Window):
         except Exception as e:
             print(f"Error in replay_points: {e}")
 
-    def convert_to_pixels(self, lat, lon):
+    def convert_to_pixels(self, lat: float, lon: float):
         """
         Converts latitude and longitude to pixel coordinates on the map.
         Ensures correct scaling so points are mapped accurately.
@@ -511,11 +496,11 @@ class MyWindow(Gtk.Window):
             pixel_x = int(((lon - LON1) / LON_RANGE) * width)
             pixel_y = int(((LAT1 - lat) / LAT_RANGE) * height)
 
-            print(f"Lat: {lat}, Lon: {lon} -> Pixel: ({pixel_x}, {pixel_y})")  # Debugging output
+            # print(f"Lat: {lat}, Lon: {lon} -> Pixel: ({pixel_x}, {pixel_y})")  # Debugging output
             return pixel_x, pixel_y
         except Exception as e:
             print(f"Error in convert_to_pixels: {e}")
-            return 0, 0  # Return (0,0) if an error occurs
+            return int(0), int(0)  # Return (0,0) if an error occurs
     
     def update_map_safe(self, rogue_coordinates, discovery_coordinates):
         GLib.idle_add(self.update_map, rogue_coordinates, discovery_coordinates)

@@ -53,11 +53,8 @@ def internal_runner(dVals: SynchronizedArray, rVals: SynchronizedArray, mode: Sy
                     rVals[i] = msg[1][i]
                 time[0] = float(msg[2])
                 mode.value = int(msg[3])
-        except InterruptedError:
+        except:
             print("IPC UNIX socket connection closed")
-            conn_kill(connection)
-        except KeyboardInterrupt:
-            print("Exiting")
             conn_kill(connection)
     finally:
         sys.exit(0)
