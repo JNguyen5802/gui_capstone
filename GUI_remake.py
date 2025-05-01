@@ -35,7 +35,7 @@ LON2 = -104.892113  # Top-right
 LAT_RANGE = LAT1 - LAT3
 LON_RANGE = LON2 - LON1
 
-clean_map_pil = Image.open(expand("Map.png")).convert("RGB")
+clean_map_pil: Image.Image = Image.open(expand("Map.png")).convert("RGBA")
 clean_map_pixbuf = pil2pixbuf(clean_map_pil)
 HEIGHT = clean_map_pil.height
 WIDTH = clean_map_pil.width
@@ -233,7 +233,7 @@ class MyWindow(Gtk.Window):
 
         for label, handler, css_class in BUTTONS:
             btn = Gtk.Button(label=label)
-            btn.set_margin(10)
+            btn.set_margin_bottom(10)
             btn.set_size_request(200, 60)
             if css_class:
                 btn.add_css_class(css_class)
@@ -335,7 +335,7 @@ class MyWindow(Gtk.Window):
         file_dropdown.append_text("RogueCoords_Downsampled_Every5.csv")
         file_dropdown.set_active(0)
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        box.set_margin(20)
+        box.set_margin_bottom(20)
         box.append(file_dropdown)
         dialog.get_content_area().append(box)
         dialog.add_buttons("OK", Gtk.ResponseType.OK, "Cancel", Gtk.ResponseType.CANCEL)
