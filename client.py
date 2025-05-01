@@ -28,37 +28,39 @@ def internal_runner(dVals: SynchronizedArray, rVals: SynchronizedArray,
     import socket
     import json
 
+    # try:
+    def conn_kill(conx: socket.socket):
+        print("IPC UNIX socket connection closed")
+        conx.shutdown(socket.SHUT_RDWR)
+        conx.close()
+
+    state[0] = 0 # connection down
+    state[1] = 1 # module busy
+
+    client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    client.connect(path)
+    client.sendall(b"0")
+    print(f"Connected on {path}")
+    
+    state[0] = 1 # connection up
+
     try:
-        def conn_kill(conx: socket.socket):
-            conx.shutdown(socket.SHUT_RDWR)
-            conx.close()
-
-        state[0] = 0 # connection down
-        state[1] = 1 # module busys
-
-        client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        client.connect(path)
-        client.sendall("0".encode())
-        print(f"Connected on {path}")
-        
-        state[0] = 1 # connection up
-
-        try:
-            while state[1] == 1: # while spinning
-                connection = client.accept()[0]
-                data = connection.recv(1024)
-                msg: Tuple[List[float], List[float], float, int] = tuple(json.loads(data))
-                time[1] = time[0]
-                for i in range(5):
-                    dVals[i] = msg[0][i]
-                    rVals[i] = msg[1][i]
-                time[0] = float(msg[2])
-                mode.value = int(msg[3])
-                if standalone:
-                    print(msg)
-        except:
-            print("IPC UNIX socket connection closed")
-            conn_kill(connection)
+        while state[1] == 1: # while spinning
+            data = client.recv(1024)
+            msg: Tuple[List[float], List[float], float, int] = tuple(json.loads(data))
+            if standalone:
+                print(msg)
+            time[1] = time[0]
+            for i in range(5):
+                dVals[i] = msg[0][i]
+                rVals[i] = msg[1][i]
+            time[0] = float(msg[2])
+            mode.value = int(msg[3])
+        conn_kill(client)
+    except KeyboardInterrupt:
+        conn_kill(client)
+    except InterruptedError:
+        conn_kill(client)
     finally:
         sys.exit(0)
 
@@ -82,15 +84,21 @@ def getTimestamp():
 def isConnected():
     return True if state[0] == 1 else False
 
+def stop():
+    unix_handler(None, None)
+
 def unix_handler(sig, frame):
+    print("Terminating")
     state[1] = 0 # stop
     state[0] = 0 # connection down
-    p1.terminate()
     try:
-        p1.kill()
+        p1.terminate()
     finally:
-        p1.join()
-        p1.close()
+        try:
+            p1.kill()
+        finally:
+            p1.join()
+            p1.close()
     sys.exit(0)
 
 def start():
@@ -106,3 +114,4 @@ def start():
 if __name__ == "__main__":
     standalone = True
     start()
+    p1.join()

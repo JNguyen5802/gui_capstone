@@ -1,4 +1,4 @@
-import gi, openpyxl, client
+import gi, openpyxl, client, threading, time, sys
 from os import path, environ
 from PIL import Image, ImageDraw
 from typing import List, Tuple
@@ -22,10 +22,10 @@ def pil2pixbuf(img: Image.Image) -> GdkPixbuf.Pixbuf:
         True, 8, img.size[0], img.size[1], img.size[0] * 4)
 
 # Load drone images as PIL images (ensure they are small e.g. 20x20 px)
-disco_icon = Image.open(expand("DiscoveryDrone_Transparent.png")).convert("RGBA")
+disco_icon: Image.Image = Image.open(expand("DiscoveryDrone_Transparent.png")).convert("RGBA")
 disco_icon = disco_icon.resize((50, 50), Image.Resampling.LANCZOS)  # Resize to 20x20 pixels
 
-rogue_icon = Image.open(expand("RogueDrone_Transparent.png")).convert("RGBA")
+rogue_icon: Image.Image = Image.open(expand("RogueDrone_Transparent.png")).convert("RGBA")
 rogue_icon = rogue_icon.resize((50, 50), Image.Resampling.LANCZOS)  # Resize to 20x20 pixels
     
 # Define reference points for the top-left, bottom-left, and top-right corners
@@ -36,20 +36,47 @@ LAT_RANGE = LAT1 - LAT3
 LON_RANGE = LON2 - LON1
 
 clean_map_pil: Image.Image = Image.open(expand("Map.png")).convert("RGBA")
+last_map_pil: Image.Image = None
 clean_map_pixbuf = pil2pixbuf(clean_map_pil)
 HEIGHT = clean_map_pil.height
 WIDTH = clean_map_pil.width
 LAT_PER_PIX = LAT_RANGE / HEIGHT
 LON_PER_PIX = LON_RANGE / WIDTH
+firstPlot: bool = False
 
-# Start IPC client
-client.start()
-    
+class setInterval:
+    def __init__(self, interval: float, action: callable):
+        self.interval = interval
+        self.action = action
+        self.stopEvent = threading.Event()
+        self.thread = threading.Thread(target=self.__setInterval, daemon=True)
+        self.thread.start()
+
+    def __setInterval(self):
+        nextTime = time.time() + self.interval
+        while not self.stopEvent.wait(nextTime-time.time()):
+            nextTime += self.interval
+            self.action()
+
+    def cancel(self):
+        self.stopEvent.set()
+
+refresh: setInterval = None
+
 def plot_icons(image: Image.Image, icon: Image.Image, coordinates: List[Tuple[float, float]]):
     lat, lon = coordinates[-1]
     pixel_x = round((lon - LON1) / LON_PER_PIX)
     pixel_y = round((LAT1 - lat) / LAT_PER_PIX)
     image.paste(icon, (pixel_x - icon.width // 2, pixel_y - icon.height // 2), mask=icon)
+
+def plot_point(draw: ImageDraw.ImageDraw, coordinate: Tuple[float, float], color: str):
+    latitude, longitude = coordinate
+    if not (LAT3 <= latitude <= LAT1) or not (LON1 <= longitude <= LON2):
+        print(f"Warning: Latitude {latitude} or Longitude {longitude} out of bounds.")
+        return None
+    pixel_x = int((longitude - LON1) / LON_PER_PIX)
+    pixel_y = int((LAT1 - latitude) / LAT_PER_PIX)
+    draw.ellipse((pixel_x - 5, pixel_y - 5, pixel_x + 5, pixel_y + 5), fill=color, outline="black")
 
 def clean_coordinate(value: int | float | str):
     """
@@ -89,7 +116,7 @@ def read_coordinates(file_path: str) -> List[Tuple[float, float]]:
                     if -90 <= latitude <= 90 and -180 <= longitude <= 180:
                         coordinates.append((latitude, longitude))
 
-        elif file_path.lower().endswith(".csv"):
+        elif filename.lower().endswith(".csv"):
             with open(file_path, mode='r', newline='', encoding='utf-8') as file:
                 read = reader(file)
                 headers = []
@@ -219,6 +246,7 @@ class MyWindow(Gtk.Window):
         title_frame.add_css_class("title-frame")
         right_panel_title = Gtk.Label(label="Controls", halign=Gtk.Align.CENTER)
         title_frame.set_child(right_panel_title)
+        title_frame.set_margin_bottom(10)
         right_panel.append(title_frame)
 
         # Buttons
@@ -227,7 +255,8 @@ class MyWindow(Gtk.Window):
             ("Save Rogue Coordinates", self.on_save_rogue_coords_clicked, "save-button"),
             ("Save Discovery Coordinates", self.on_save_discovery_coords_clicked, "save-button"),
             ("Clear Map", self.on_clear_map_clicked, "save-button"),
-            ("Reload Data", self.on_reload_data_clicked, None),
+            ("Force Refresh", self.on_reload_data_clicked, "large-button"),
+            ("Stop Update", self.stop_update, "large-button"),
             ("Start Record", self.on_start_flight_button_clicked, "large-button")
         ]
 
@@ -272,16 +301,19 @@ class MyWindow(Gtk.Window):
         """
         print("Clear Map button clicked.")
         self.clear_map()
-        self.auto_reload = False
 
     def clear_map(self):
         """
         Resets map to original image.
         """
+        global last_map_pil
         try:
+            self.auto_reload = False
             client.clearVals()
+            last_map_pil = clean_map_pil.copy()
             self.refresh_image(clean_map_pixbuf)
             self.content_area.queue_draw()
+            self.auto_reload = True
         except Exception as e:
             print(f"Error clearing map: {e}")
 
@@ -289,11 +321,17 @@ class MyWindow(Gtk.Window):
         """
         Re-enables auto-reload and updates the map.
         """
+        global last_map_pil, firstPlot
         print("Reload Data button clicked. Enabling auto-reload.")
         self.auto_reload = False
         self.discovery_coordinates, self.rogue_coordinates = client.getVals()
         self.update_map(self.rogue_coordinates, self.discovery_coordinates)
+        last_map_pil = clean_map_pil.copy()
+        firstPlot = False
         self.auto_reload = True
+
+    def stop_update(self, button: None):
+        self.auto_reload = False
 
     def on_save_rogue_coords_clicked(self, button):
         """
@@ -353,48 +391,46 @@ class MyWindow(Gtk.Window):
         """
         Starts background CSV monitoring.
         """
+        global refresh
         def monitor_changes():
             if self.auto_reload:
-                try:
-                    self.discovery_coordinates, self.rogue_coordinates = client.getVals()
-                    GLib.idle_add(self.update_map, self.rogue_coordinates, self.discovery_coordinates)
-                except Exception as e:
-                    print(f"Monitoring error: {e}")
-        GLib.timeout_add(200, monitor_changes)
+                self.auto_reload = False
+                self.discovery_coordinates, self.rogue_coordinates = client.getVals()
+                GLib.idle_add(self.update_map, self.rogue_coordinates, self.discovery_coordinates)
+                self.auto_reload = True
+        refresh = setInterval(0.1, monitor_changes)
         
 
     def update_map(self, rogue_coordinates: List[Tuple[float, float]], discovery_coordinates: List[Tuple[float, float]]):
         """
         Updates the map with rogue and discovery coordinates.
         """
-        try:
-            pil_image = clean_map_pil.copy()
-            draw = ImageDraw.Draw(pil_image)
+        global last_map_pil, firstPlot
 
-            # Function to plot points
-            def plot_point(coordinate: Tuple[float, float], color: str):
-                latitude, longitude = coordinate
-                if not (LAT3 <= latitude <= LAT1) or not (LON1 <= longitude <= LON2):
-                    print(f"Warning: Latitude {latitude} or Longitude {longitude} out of bounds.")
-                    return None
-                pixel_x = int((longitude - LON1) / LON_PER_PIX)
-                pixel_y = int((LAT1 - latitude) / LAT_PER_PIX)
-                draw.ellipse((pixel_x - 5, pixel_y - 5, pixel_x + 5, pixel_y + 5), fill=color, outline="black")
+        if rogue_coordinates and discovery_coordinates:
 
-            # Plot all but the last rogue coordinate as circles
-            for coord in rogue_coordinates[:-1]:
-                plot_point(coord, "red")
+            pil_image: Image.Image = None
 
-            # Plot last rogue coordinate with the rogue drone image
-            if rogue_coordinates:
-                plot_icons(pil_image, rogue_icon, rogue_coordinates)
+            if firstPlot:
+                pil_image = last_map_pil.copy()
+                draw = ImageDraw.Draw(pil_image)
+                if len(discovery_coordinates) > 1:
+                    plot_point(draw, rogue_coordinates[-2], "red")
+                    plot_point(draw, discovery_coordinates[-2], "green")
+            else:
+                pil_image = clean_map_pil.copy()
+                draw = ImageDraw.Draw(pil_image)
+                # Plot all but the last rogue coordinate as circles
+                for coord in rogue_coordinates[:-1]:
+                    plot_point(draw, coord, "red")
+                # Same for discovery
+                for coord in discovery_coordinates[:-1]:
+                    plot_point(draw, coord, "green")
+                firstPlot = True
+            last_map_pil = pil_image.copy()
 
-            # Same for discovery
-            for coord in discovery_coordinates[:-1]:
-                plot_point(coord, "green")
-
-            if discovery_coordinates:
-                plot_icons(pil_image, disco_icon, discovery_coordinates)
+            plot_icons(pil_image, rogue_icon, rogue_coordinates)
+            plot_icons(pil_image, disco_icon, discovery_coordinates)
 
             # Convert back to Pixbuf for GTK
             updated_pixbuf = pil2pixbuf(pil_image)
@@ -403,8 +439,6 @@ class MyWindow(Gtk.Window):
             # Update the Gtk.Picture widget
             self.map_image_widget.set_paintable(texture)
             self.content_area.queue_draw()
-        except Exception as e:
-            print(f"Error updating map: {e}")
     
     def replay_points(self, file_name: str, drone_name: str):
         """
@@ -488,16 +522,28 @@ class MyWindow(Gtk.Window):
 
 class MyApp(Gtk.Application):
     def __init__(self):
-        super().__init__(application_id="org.example.myapp", flags=Gio.ApplicationFlags.FLAGS_NONE)
+        super().__init__(application_id="mil.daf.usafa.dfec.cuas", flags=Gio.ApplicationFlags.FLAGS_NONE)
 
     def do_activate(self):
+        global win
         win = MyWindow(self)
         win.present()
         win.start_csv_monitoring()
 
 def main():
+
+    # Start IPC client
+    client.start()
+
     app = MyApp()
     app.run(None)
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt or InterruptedError:
+        print("Exiting cleanly")
+        client.stop()
+        if refresh:
+            refresh.cancel()
+        sys.exit(0)
